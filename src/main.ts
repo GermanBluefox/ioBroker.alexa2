@@ -94,6 +94,9 @@ import type {
     WsVolumeChangePayload,
 } from './lib/types';
 
+/** Records the Amazon responses to "iobroker-data/alexa2.<n>/amazon-responses.json" (with log level debug) */
+const RECORD_AMAZON_RESPONSES = false;
+
 /** Only disable for development! */
 const USE_CRASH_CHECK = true;
 
@@ -7636,8 +7639,9 @@ class Alexa2Adapter extends utils.Adapter {
         // alexa-remote2 declares some members the adapter uses not in its typings (see AlexaRemoteInstance)
         this.alexa = new AlexaRemote() as AlexaRemoteInstance;
 
-        // With log level debug the Amazon responses are recorded to complete the types of the responses
-        if (this.log.level === 'debug' || this.log.level === 'silly') {
+        // With log level debug the Amazon responses can be recorded to complete the types of the responses.
+        // Disabled: set RECORD_AMAZON_RESPONSES to true to enable it again
+        if (RECORD_AMAZON_RESPONSES && (this.log.level === 'debug' || this.log.level === 'silly')) {
             this.responseSampler = new ResponseSampler(
                 this,
                 join(utils.getAbsoluteInstanceDataDir(this), 'amazon-responses.json'),
