@@ -19,6 +19,18 @@ export interface Shape {
     items?: Shape;
 }
 
+/** One call of an endpoint (or one push command / event) */
+export interface RecentCall {
+    /** Time of the response */
+    time: string;
+    /** Real request path incl. query (only for responses), e.g. to see which device was queried */
+    request?: string;
+    /** Error message, if the call failed */
+    error?: string;
+    /** Short summary of the response (secrets redacted, only the first array item, short strings) */
+    summary?: unknown;
+}
+
 /** Collected data of one endpoint or push command */
 export interface Sample {
     /** Number of responses */
@@ -33,6 +45,8 @@ export interface Sample {
     shape?: Shape;
     /** Last response (secrets redacted, arrays and strings shortened) */
     last?: unknown;
+    /** The last calls (newest first, max. MAX_RECENT) with time and a short summary */
+    recent?: RecentCall[];
 }
 
 /** Content of the sample file */
@@ -55,6 +69,12 @@ const MAX_ITEMS = 3;
 const MAX_STRING = 300;
 /** Maximum number of example values per position */
 const MAX_EXAMPLES = 5;
+/** Number of calls kept per endpoint in `recent` */
+const MAX_RECENT = 20;
+/** Maximum depth of the summary of a call */
+const SUMMARY_DEPTH = 4;
+/** Maximum length of strings in the summary of a call */
+const SUMMARY_STRING = 80;
 
 /**
  * Returns the JSON type of a value.
@@ -151,6 +171,51 @@ export const redact = (value: unknown, key = ''): unknown => {
 };
 
 /**
+ * Creates a short summary of a response for the list of recent calls: secrets are redacted,
+ * only the first array item is kept (with the number of items), strings are shortened, deeper levels are cut.
+ * Properties with null values are left out, so it is visible which fields were filled.
+ *
+ * @param value value to summarize
+ * @param key name of the property
+ * @param depth current depth
+ * @returns the summary
+ */
+export const summarize = (value: unknown, key = '', depth = 0): unknown => {
+    if (value === null || value === undefined) {
+        return value;
+    }
+    if (SECRET_KEYS.test(key) && typeof value !== 'object') {
+        return '<redacted>';
+    }
+    if (Array.isArray(value)) {
+        if (!value.length) {
+            return [];
+        }
+        if (depth >= SUMMARY_DEPTH) {
+            return `<${value.length} items>`;
+        }
+        const first = summarize(value[0], key, depth + 1);
+        return value.length > 1 ? [first, `<${value.length - 1} more items>`] : [first];
+    }
+    if (typeof value === 'object') {
+        if (depth >= SUMMARY_DEPTH) {
+            return '<object>';
+        }
+        const result: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+            if (v !== null && v !== undefined) {
+                result[k] = summarize(v, k, depth + 1);
+            }
+        }
+        return result;
+    }
+    if (typeof value === 'string') {
+        return value.length > SUMMARY_STRING ? `${value.substring(0, SUMMARY_STRING)}...` : value;
+    }
+    return value;
+};
+
+/**
  * Normalizes a request path to one key per endpoint: query values and ids in the path are removed.
  *
  * @param path request path (with query)
@@ -167,7 +232,9 @@ export const normalizePath = (path: string): string => {
             /\d{3,}/.test(segment) || // long numbers
             /^(?=.*\d)[A-Z0-9]{10,}$/.test(segment) || // serial numbers and device types (upper case)
             /[~%.]/.test(segment) || // amzn1... ids and encoded values
-            /^[0-9a-f-]{20,}$/i.test(segment); // uuids
+            /^[0-9a-f-]{20,}$/i.test(segment) || // uuids
+            /=$/.test(segment) || // base64 with padding (e.g. list ids)
+            (/^[A-Za-z0-9+_-]{24,}$/.test(segment) && /[A-Z]/.test(segment) && /[a-z]/.test(segment)); // base64
         return isId ? ':id' : segment;
     });
     const params = query
@@ -230,7 +297,9 @@ export class ResponseSampler {
                 (err, res) => {
                     // HTML pages (handleAsText) are not interesting
                     if (!flags?.handleAsText) {
-                        this.record(this.data.responses, key, err, res);
+                        // the timestamp parameter is removed, it changes with every call
+                        const request = fullPath.replace(/[?&]_=[^&]*/, '');
+                        this.record(this.data.responses, key, err, res, request);
                     }
                     callback(err, res);
                 },
@@ -262,8 +331,15 @@ export class ResponseSampler {
      * @param key endpoint or command
      * @param err error of the call
      * @param value response
+     * @param request real request path (only for responses)
      */
-    private record(target: Record<string, Sample>, key: string, err: Error | null | undefined, value: unknown): void {
+    private record(
+        target: Record<string, Sample>,
+        key: string,
+        err: Error | null | undefined,
+        value: unknown,
+        request?: string,
+    ): void {
         const now = new Date().toISOString();
         let sample = target[key];
         if (!sample) {
@@ -272,13 +348,22 @@ export class ResponseSampler {
         }
         sample.count++;
         sample.lastSeen = now;
+        const call: RecentCall = { time: now };
+        if (request) {
+            call.request = request;
+        }
         if (err) {
             sample.errors++;
             sample.lastError = Array.isArray(err) ? err.join(', ') : err.message || String(err);
+            call.error = sample.lastError;
         } else if (value !== undefined) {
             sample.shape = mergeShape(sample.shape, value);
             sample.last = redact(value);
+            call.summary = summarize(value);
         }
+        sample.recent ||= [];
+        sample.recent.unshift(call);
+        sample.recent.length = Math.min(sample.recent.length, MAX_RECENT);
         this.scheduleWrite();
     }
 

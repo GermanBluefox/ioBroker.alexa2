@@ -89,6 +89,19 @@ export interface ControlDefinition {
     common: Partial<ioBroker.StateCommon>;
 }
 
+/** Definition of a state in the "Media" channel (type-detector pattern "mediaPlayer") */
+export interface MediaStateDefinition {
+    /** State in the "Player" channel: the value is mirrored from it, a command is forwarded to it */
+    player?: string;
+    /** The "Player" state is a boolean, the "Media" state a number (0 = false, 1 = true) */
+    playerBoolean?: boolean;
+    /** Only for devices with a music player */
+    music?: boolean;
+    /** Only for devices with volume control */
+    volume?: boolean;
+    common: Partial<ioBroker.StateCommon>;
+}
+
 /** Definition of a list (or list item) state */
 export interface ListStateDefinition {
     type: ioBroker.CommonType;

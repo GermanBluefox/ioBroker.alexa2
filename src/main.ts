@@ -12,12 +12,14 @@ import {
     KNOWN_DEVICE_TYPES,
     LIST_ITEMS_OBJECTS,
     LIST_OBJECTS,
+    MEDIA_STATES,
     MUSIC_CONTROLS,
     PLAYER_CONTROLS,
 } from './lib/constants';
 import * as shObjects from './lib/smarthomedevices';
 import { getStatusInfoText } from './lib/statusTexts';
 import { ResponseSampler } from './lib/responseSampler';
+import type { NowPlayingData, NowPlayingUpdatedEvent } from './lib/alexa-remote/responses';
 import type {
     AdapterObjectDefinition,
     AdditionalDeviceData,
@@ -51,6 +53,7 @@ import type {
     LastPlayerState,
     MacDms,
     MultiroomCommandCallback,
+    MediaStateDefinition,
     NotificationActiveTimer,
     NotificationEntry,
     NotificationRecurrence,
@@ -137,6 +140,8 @@ class Alexa2Adapter extends utils.Adapter {
     private equalizerUpdateTimeouts: Record<string, ioBroker.Timeout | undefined> = {};
 
     private lastPlayerState: Record<string, LastPlayerState> = {};
+    /** Last "now playing" data per device from the push messages (NotifyNowPlayingUpdated) */
+    private nowPlaying: Record<string, { data: NowPlayingData; ts: number }> = {};
     private notificationTimer: Record<string, ioBroker.Timeout | null | undefined> = {};
     private pushConnected = false;
     private shApplianceEntityMap: Record<string, ShApplianceEntityInfo> = {};
@@ -252,6 +257,9 @@ class Alexa2Adapter extends utils.Adapter {
 
     private onStateChange(id: string, state: ioBroker.State | null | undefined): void {
         this.log.debug(`State changed ${id}: ${JSON.stringify(state)}`);
+        if (state?.ack) {
+            this.mirrorPlayerToMedia(id.substring(this.namespace.length + 1), state.val);
+        }
         if (!state || state.ack) {
             return;
         }
@@ -304,6 +312,97 @@ class Alexa2Adapter extends utils.Adapter {
         if (!this.pushConnected) {
             this.scheduleStatesUpdate(3000);
         }
+    }
+
+    /**
+     * Creates the channel "Media" next to "Player" with the states of a media player as the type-detector expects
+     * them (pattern "mediaPlayer"). The values are mirrored from the "Player" channel and commands are forwarded
+     * to it, so the existing logic is used.
+     *
+     * @param device Echo device
+     * @param devId object ID of the device, e.g. "Echo-Devices.<serial>"
+     */
+    private createMediaChannel(device: AlexaDevice, devId: string): void {
+        this.setOrUpdateObject(`${devId}.Media`, { type: 'channel', common: { name: 'Media player' } });
+        for (const [name, def] of Object.entries(MEDIA_STATES)) {
+            if (
+                (def.music && !device.hasMusicPlayer) ||
+                (def.volume && !device.capabilities.includes('VOLUME_SETTING'))
+            ) {
+                continue;
+            }
+            let value: ioBroker.StateValue | undefined;
+            if (name === 'playerName') {
+                value = device._name || device.serialNumber;
+            } else if (def.common.role?.startsWith('button')) {
+                value = false;
+            }
+            this.setOrUpdateObject(
+                `${devId}.Media.${name}`,
+                { common: JSON.parse(JSON.stringify(def.common)) },
+                value,
+                def.common.write ? val => this.forwardMediaCommand(devId, def, val) : undefined,
+            );
+        }
+    }
+
+    /**
+     * Forwards a command of the "Media" channel to the corresponding state of the "Player" channel.
+     *
+     * @param devId object ID of the device
+     * @param def definition of the "Media" state
+     * @param value written value
+     */
+    private forwardMediaCommand(devId: string, def: MediaStateDefinition, value: ioBroker.StateValue): void {
+        if (!def.player) {
+            return;
+        }
+        if (def.common.role?.startsWith('button')) {
+            value = true;
+        } else if (def.playerBoolean) {
+            value = Number(value) > 0;
+        }
+        void this.setState(`${devId}.Player.${def.player}`, value, false);
+    }
+
+    /**
+     * Mirrors an acknowledged value of the "Player" channel to the "Media" channel. Buttons are not mirrored.
+     *
+     * @param id object ID without namespace, e.g. "Echo-Devices.<serial>.Player.currentTitle"
+     * @param value new value
+     */
+    private mirrorPlayerToMedia(id: string, value: ioBroker.StateValue): void {
+        const parts = id.split('.');
+        if (parts.length !== 4 || parts[0] !== 'Echo-Devices' || parts[2] !== 'Player') {
+            return;
+        }
+        for (const [name, def] of Object.entries(MEDIA_STATES)) {
+            if (def.player !== parts[3] || def.common.role?.startsWith('button')) {
+                continue;
+            }
+            const mediaId = `${parts[0]}.${parts[1]}.Media.${name}`;
+            if (this.adapterObjects[mediaId]) {
+                if (def.playerBoolean && typeof value === 'boolean') {
+                    value = value ? 1 : 0;
+                }
+                void this.setState(mediaId, value, true);
+            }
+            return;
+        }
+    }
+
+    /** Copies the current values of all "Player" channels to the "Media" channels (at start). */
+    private syncMediaChannels(): void {
+        this.getStates('Echo-Devices.*.Player.*', (err, states) => {
+            if (err || !states) {
+                return;
+            }
+            for (const [id, state] of Object.entries(states)) {
+                if (state && state.val !== undefined) {
+                    this.mirrorPlayerToMedia(id.substring(this.namespace.length + 1), state.val);
+                }
+            }
+        });
     }
 
     private onObjectChange(id: string, object: ioBroker.Object | null | undefined): void {
@@ -3398,6 +3497,7 @@ class Alexa2Adapter extends utils.Adapter {
                                     if (device.isControllable) {
                                         this.playerDevices[device.serialNumber] = true;
                                         this.setOrUpdateObject(`${devId}.Player`, { type: 'channel' });
+                                        this.createMediaChannel(device, devId);
 
                                         this.setOrUpdateObject(`${devId}.Player.contentType`, {
                                             common: { role: 'text', write: false, def: '' },
@@ -4502,6 +4602,22 @@ class Alexa2Adapter extends utils.Adapter {
                                             );
                                         }
                                     }
+                                    // Restart of the device (like "Restart device" in the Alexa app)
+                                    this.setOrUpdateObject(
+                                        `${devId}.Commands.reboot`,
+                                        { common: { type: 'boolean', read: false, write: true, role: 'button' } },
+                                        false,
+                                        () => {
+                                            this.log.info(`Reboot device ${device.serialNumber}`);
+                                            this.alexa.rebootDevice(device.serialNumber, err => {
+                                                if (err) {
+                                                    this.log.warn(
+                                                        `Could not reboot device ${device.serialNumber}: ${err.message}`,
+                                                    );
+                                                }
+                                            });
+                                        },
+                                    );
                                     this.setOrUpdateObject(
                                         `${devId}.Commands.doNotDisturb`,
                                         { common: { type: 'mixed', role: 'state' } },
@@ -6378,6 +6494,126 @@ class Alexa2Adapter extends utils.Adapter {
         });
     }
 
+    /**
+     * Creates a player info (in the format of getPlayerInfo()) from the last "now playing" push data of a device.
+     * The progress is calculated from the time of the message. Outdated data is not used: playing data after
+     * the end of the media (plus 10 seconds, the next media is announced by a new push message),
+     * radio and paused data after one hour.
+     *
+     * @param serialNumber serial number of the device
+     * @returns the player info or null if no (valid) data is available
+     */
+    private playerInfoFromNowPlaying(serialNumber: string): AmazonJson | null {
+        const entry = this.nowPlaying[serialNumber];
+        if (!entry) {
+            return null;
+        }
+        const np = entry.data;
+        const age = Date.now() - entry.ts;
+        const playing = np.playerState === 'PLAYING';
+        // the push data contains milliseconds, the player info seconds
+        const length = np.progress?.mediaLength || 0;
+        let progress = np.progress?.mediaProgress || 0;
+        if (playing) {
+            progress += age;
+        }
+        if ((playing && length > 0 && progress > length + 10000) || ((!playing || length === 0) && age > 3600000)) {
+            delete this.nowPlaying[serialNumber];
+            return null;
+        }
+        return {
+            playerInfo: {
+                // only the state is known if the "now playing" message did not arrive yet: no undefined values
+                state: np.playerState,
+                infoText: np.infoText
+                    ? {
+                          title: np.infoText.title || '',
+                          subText1: np.infoText.subText1 || '',
+                          subText2: np.infoText.subText2 || '',
+                      }
+                    : null,
+                mainArt: np.mainArt ? { url: np.mainArt.largeUrl || np.mainArt.fullUrl || '' } : null,
+                miniArt: np.mainArt ? { url: np.mainArt.smallUrl || np.mainArt.tinyUrl || '' } : null,
+                provider: np.provider ? { providerName: np.provider.providerName || '' } : null,
+                progress: np.progress
+                    ? { mediaLength: Math.round(length / 1000), mediaProgress: Math.round(progress / 1000) }
+                    : null,
+                transport: np.transport || null,
+                quality: np.quality ? { name: np.quality.name || '' } : null,
+                mediaId: np.mediaId || '',
+                queueId: np.queueId || '',
+                isPlayingInLemur: false,
+                playingInLemurId: null,
+                volume: null,
+            },
+        };
+    }
+
+    /**
+     * Uses the "now playing" push data if getPlayerInfo() delivered an empty player (no state), which happens
+     * e.g. for Spotify. Otherwise, the response is returned unchanged.
+     *
+     * @param serialNumber serial number of the device
+     * @param res response of getPlayerInfo()
+     * @returns the response to use
+     */
+    private completePlayerInfo(serialNumber: string, res: AmazonJson | undefined): AmazonJson | undefined {
+        if (res?.playerInfo?.state) {
+            return res;
+        }
+        const fromPush = this.playerInfoFromNowPlaying(serialNumber);
+        if (!fromPush) {
+            return res;
+        }
+        this.log.debug(`Player of ${serialNumber} is empty, use the data of the last "now playing" push message`);
+        // values the empty player still delivers
+        if (res?.playerInfo) {
+            fromPush.playerInfo.isPlayingInLemur = !!res.playerInfo.isPlayingInLemur;
+            fromPush.playerInfo.playingInLemurId = res.playerInfo.playingInLemurId ?? null;
+            fromPush.playerInfo.volume = res.playerInfo.volume ?? null;
+        }
+        return fromPush;
+    }
+
+    /**
+     * Applies a state change of the audio player (PUSH_AUDIO_PLAYER_STATE) to the stored "now playing" data,
+     * as the corresponding NotifyNowPlayingUpdated message comes later (up to some seconds).
+     * The progress is frozen when paused. If another media is played, the old data is dropped and only the state
+     * is known until the "now playing" message of the new media arrives.
+     *
+     * @param serialNumber serial number of the device
+     * @param audioPlayerState new state: PLAYING, INTERRUPTED, FINISHED, ...
+     * @param mediaReferenceId media of the message, e.g. "EMP_ALEXA-<uuid>:spotify:track:<id>"
+     */
+    private updateNowPlayingState(serialNumber: string, audioPlayerState: string, mediaReferenceId?: string): void {
+        const entry = this.nowPlaying[serialNumber];
+        const now = Date.now();
+        if (!entry) {
+            if (audioPlayerState === 'PLAYING') {
+                // only the state is known, title etc. follow with the "now playing" message
+                this.nowPlaying[serialNumber] = { data: { playerState: 'PLAYING' } as NowPlayingData, ts: now };
+            }
+            return;
+        }
+        const mediaId = entry.data.mediaId;
+        const sameMedia =
+            !mediaReferenceId || !mediaId || mediaReferenceId === mediaId || mediaReferenceId.endsWith(`:${mediaId}`);
+        if (!sameMedia) {
+            if (audioPlayerState === 'PLAYING') {
+                // only the state is known, title etc. follow with the next "now playing" message
+                this.nowPlaying[serialNumber] = { data: { playerState: 'PLAYING' } as NowPlayingData, ts: now };
+            } else {
+                delete this.nowPlaying[serialNumber];
+            }
+            return;
+        }
+        if (entry.data.playerState === 'PLAYING' && entry.data.progress) {
+            entry.data.progress.mediaProgress += now - entry.ts;
+        }
+        entry.data.playerState = audioPlayerState === 'INTERRUPTED' ? 'PAUSED' : audioPlayerState;
+        entry.ts = now;
+    }
+
     private updatePlayerStatus(serialOrName?: string | AlexaDevice | null | (() => void), callback?: () => void): void {
         if (typeof serialOrName === 'function') {
             callback = serialOrName;
@@ -6409,7 +6645,8 @@ class Alexa2Adapter extends utils.Adapter {
             const devId = `Echo-Devices.${device.serialNumber}`;
 
             this.alexa.getPlayerInfo(device, (err, res) => {
-                const resPlayer = res as AmazonJson | undefined;
+                // Amazon delivers an empty player for some providers (e.g. Spotify): use the push data then
+                const resPlayer = this.completePlayerInfo(device.serialNumber, res as AmazonJson | undefined);
                 if (this.stopped) {
                     return;
                 }
@@ -6565,10 +6802,11 @@ class Alexa2Adapter extends utils.Adapter {
                         if (resPlayer.playerInfo.miniArt) {
                             playerData.miniArtUrl = resPlayer.playerInfo.miniArt.url;
                         }
-                        playerData.mediaId = resPlayer.playerInfo.mediaId;
-                        playerData.queueId = resPlayer.playerInfo.queueId;
-                        playerData.playingInGroup = resPlayer.playerInfo.isPlayingInLemur;
-                        playerData.playingInGroupId = resPlayer.playerInfo.playingInLemurId;
+                        // setState() throws on undefined values
+                        playerData.mediaId = resPlayer.playerInfo.mediaId ?? '';
+                        playerData.queueId = resPlayer.playerInfo.queueId ?? '';
+                        playerData.playingInGroup = !!resPlayer.playerInfo.isPlayingInLemur;
+                        playerData.playingInGroupId = resPlayer.playerInfo.playingInLemurId ?? '';
 
                         if (resPlayer.playerInfo.progress) {
                             playerData.mediaLength = parseInt(resPlayer.playerInfo.progress.mediaLength || '0', 10);
@@ -6585,7 +6823,7 @@ class Alexa2Adapter extends utils.Adapter {
                         playerData.controlPlay = resPlayer.playerInfo.state === 'PLAYING';
 
                         if (resPlayer.playerInfo.quality) {
-                            playerData.quality = resPlayer.playerInfo.quality.name;
+                            playerData.quality = resPlayer.playerInfo.quality.name ?? '';
                             if (resPlayer.playerInfo.quality.stats) {
                                 playerData.qualityCodec = resPlayer.playerInfo.quality.stats.codec;
                                 playerData.qualityDataRate = Math.round(
@@ -6736,7 +6974,7 @@ class Alexa2Adapter extends utils.Adapter {
                 };
 
                 if (resPlayer.playerInfo !== undefined && resPlayer.playerInfo.provider) {
-                    playerData.providerName = resPlayer.playerInfo.provider.providerName;
+                    playerData.providerName = resPlayer.playerInfo.provider.providerName ?? '';
                 }
 
                 if (resPlayer.mainArt && resPlayer.mainArt.url !== undefined) {
@@ -7525,6 +7763,7 @@ class Alexa2Adapter extends utils.Adapter {
             if (lastState && lastState.resPlayer && lastState.resPlayer.playerInfo) {
                 lastState.resPlayer.playerInfo.state = data.audioPlayerState;
             }
+            this.updateNowPlayingState(device.serialNumber, data.audioPlayerState, data.mediaReferenceId);
             const devId = `Echo-Devices.${device.serialNumber}`;
             void this.setState(
                 `${devId}.Player.controlPause`,
@@ -7536,6 +7775,22 @@ class Alexa2Adapter extends utils.Adapter {
             void this.setState(`${devId}.Player.currentState`, data.audioPlayerState === 'PLAYING', true);
 
             this.schedulePlayerUpdate(device.serialNumber, 1000);
+        });
+
+        this.alexa.on('ws-now-playing-updated', (data: NowPlayingUpdatedEvent) => {
+            this.log.debug(
+                `Alexa-Push-Connection Now playing update for ${data.deviceSerialNumber} -> ${data.playerState} (${data.cause})`,
+            );
+            if (!data.deviceSerialNumber || !data.nowPlayingData) {
+                // the device could not be determined (no audio player message before)
+                return;
+            }
+            const device = this.findDevice(data.deviceSerialNumber);
+            if (!device) {
+                return;
+            }
+            this.nowPlaying[device.serialNumber] = { data: data.nowPlayingData, ts: Date.now() };
+            this.schedulePlayerUpdate(device.serialNumber, 500);
         });
 
         this.alexa.on('ws-media-queue-change', (data: WsMediaQueueChangePayload) => {
@@ -7866,7 +8121,7 @@ class Alexa2Adapter extends utils.Adapter {
             this.alexa.getMusicProviders((err, providers) => {
                 this.musicProviders = [];
                 if (!err && providers) {
-                    this.musicProviders = providers as AmazonJson[];
+                    this.musicProviders = providers;
                 }
 
                 this.initRoutines(() => {
@@ -7923,6 +8178,7 @@ class Alexa2Adapter extends utils.Adapter {
                                                         this.subscribeStates('*');
                                                         this.subscribeObjects('*');
                                                         this.initDone = true;
+                                                        this.syncMediaChannels();
 
                                                         this.updateHistory(() => {
                                                             this.updateDeviceConfigurationStates(() => {

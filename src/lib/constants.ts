@@ -1,4 +1,4 @@
-import type { ControlDefinition, KnownDeviceType, ListStateDefinition } from './types';
+import type { ControlDefinition, KnownDeviceType, ListStateDefinition, MediaStateDefinition } from './types';
 
 export const PLAYER_CONTROLS: Record<string, ControlDefinition> = {
     controlPlay: {
@@ -43,6 +43,111 @@ export const MUSIC_CONTROLS: Record<string, ControlDefinition> = {
         command: 'repeat',
         val: false,
         common: { type: 'boolean', read: false, write: true, role: 'media.mode.repeat' },
+    },
+};
+
+/**
+ * States of the "Media" channel, built as the type-detector expects a media player (pattern "mediaPlayer"),
+ * so that visualizations and assistants detect it. The "Player" channel does not fit the pattern
+ * (e.g. repeat is a boolean, many additional states), but is kept for compatibility.
+ */
+export const MEDIA_STATES: Record<string, MediaStateDefinition> = {
+    state: {
+        player: 'currentState',
+        common: { name: 'Playing', type: 'boolean', role: 'media.state', read: true, write: false, def: false },
+    },
+    play: {
+        player: 'controlPlay',
+        common: { name: 'Play', type: 'boolean', role: 'button.play', read: false, write: true },
+    },
+    pause: {
+        player: 'controlPause',
+        common: { name: 'Pause', type: 'boolean', role: 'button.pause', read: false, write: true },
+    },
+    next: {
+        player: 'controlNext',
+        music: true,
+        common: { name: 'Next', type: 'boolean', role: 'button.next', read: false, write: true },
+    },
+    prev: {
+        player: 'controlPrevious',
+        music: true,
+        common: { name: 'Previous', type: 'boolean', role: 'button.prev', read: false, write: true },
+    },
+    shuffle: {
+        player: 'controlShuffle',
+        music: true,
+        common: { name: 'Shuffle', type: 'boolean', role: 'media.mode.shuffle', read: true, write: true },
+    },
+    repeat: {
+        player: 'controlRepeat',
+        playerBoolean: true,
+        music: true,
+        common: {
+            name: 'Repeat',
+            type: 'number',
+            role: 'media.mode.repeat',
+            read: true,
+            write: true,
+            states: { 0: 'off', 1: 'all' },
+        },
+    },
+    title: {
+        player: 'currentTitle',
+        common: { name: 'Title', type: 'string', role: 'media.title', read: true, write: false, def: '' },
+    },
+    artist: {
+        player: 'currentArtist',
+        common: { name: 'Artist', type: 'string', role: 'media.artist', read: true, write: false, def: '' },
+    },
+    album: {
+        player: 'currentAlbum',
+        common: { name: 'Album', type: 'string', role: 'media.album', read: true, write: false, def: '' },
+    },
+    cover: {
+        player: 'mainArtUrl',
+        common: { name: 'Cover', type: 'string', role: 'media.cover', read: true, write: false, def: '' },
+    },
+    duration: {
+        player: 'mediaLength',
+        common: {
+            name: 'Duration',
+            type: 'number',
+            role: 'media.duration',
+            read: true,
+            write: false,
+            unit: 'sec',
+            def: 0,
+        },
+    },
+    elapsed: {
+        player: 'mediaProgress',
+        common: {
+            name: 'Elapsed',
+            type: 'number',
+            role: 'media.elapsed',
+            read: true,
+            write: false,
+            unit: 'sec',
+            def: 0,
+        },
+    },
+    volume: {
+        player: 'volume',
+        volume: true,
+        common: {
+            name: 'Volume',
+            type: 'number',
+            role: 'level.volume',
+            read: true,
+            write: true,
+            min: 0,
+            max: 100,
+            unit: '%',
+        },
+    },
+    playerName: {
+        common: { name: 'Player name', type: 'string', role: 'media.player.name', read: true, write: false, def: '' },
     },
 };
 

@@ -203,6 +203,30 @@ States to control the Playback of the device and to see the current status and m
 | TuneIn-Station      | text field to put in a Station name to play this station on this device. Also it is possible to type in the station number (s123456...), a show/podcast id (p1234567...) or a topic id (t123456789...) | Text input                                                   |
 | volume              | Volume of playback. You can enter a value between 0-100%                                                                                                                                               | INPUT Volume                                                 |
 
+### alexa2.0.Echo-Devices.Serialnumber.Media.*
+The same player as a channel that the ioBroker type-detector recognizes as a media player (pattern `mediaPlayer`),
+e.g. for visualizations and voice assistants. The values are taken from the `Player` channel and the commands are
+forwarded to it. `next`, `prev`, `shuffle` and `repeat` exist only for devices with a music player, `volume` only for
+devices with volume control.
+
+| State name | role               | meaning                                | value            |
+|------------|--------------------|----------------------------------------|------------------|
+| state      | media.state        | true while playing                     | true / false     |
+| play       | button.play        | Continue playback                      | Button           |
+| pause      | button.pause       | Pause playback                         | Button           |
+| next       | button.next        | Next title                             | Button           |
+| prev       | button.prev        | Previous title                         | Button           |
+| shuffle    | media.mode.shuffle | Shuffle mode                           | true / false     |
+| repeat     | media.mode.repeat  | Repeat mode                            | 0 = off, 1 = all |
+| title      | media.title        | Current title                          | Information      |
+| artist     | media.artist       | Current artist                         | Information      |
+| album      | media.album        | Current album                          | Information      |
+| cover      | media.cover        | URL of the cover                       | Information      |
+| duration   | media.duration     | Length of the current title in seconds | Information      |
+| elapsed    | media.elapsed      | Elapsed time in seconds                | Information      |
+| volume     | level.volume       | Volume 0-100 %                         | INPUT Volume     |
+| playerName | media.player.name  | Name of the device                     | Information      |
+
 ### alexa2.0.Echo-Devices.Serialnumber.Preferences.*
 Here you find some device preferences.
 
@@ -509,6 +533,9 @@ If your region is not present, and you find out the value, do not hesitate to en
 * (@GermanBluefox) Breaking change: Node.js >= 22.19.0, js-controller >= 6.0.11 and admin >= 7.0.0 are required now
 * (@GermanBluefox) The adapter was refactored to TypeScript
 * (@GermanBluefox) The configuration dialog was migrated to JsonConfig
+* (@GermanBluefox) Fixed: player states are filled from the "now playing" push messages when Amazon delivers an empty player (e.g. Spotify) instead of being reset (#1262)
+* (@GermanBluefox) Added the button `Commands.reboot` to restart a device (#1222)
+* (@GermanBluefox) Added the channel `Media` next to `Player`, which the type-detector recognizes as a media player
 
 ### 3.28.3 (2026-07-06)
 * (@Apollon77) Fix the proxy login process when no static port is specified

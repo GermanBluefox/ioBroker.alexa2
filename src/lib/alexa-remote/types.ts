@@ -149,7 +149,7 @@ export type Serial = {
 export type CallbackWithError = (err?: Error | null) => void;
 
 /** Node.js style callback with error and result */
-export type CallbackWithErrorAndBody<T = any> = (err?: Error | null, body?: T) => void;
+export type CallbackWithErrorAndBody<T = any> = (err?: Error | null, body?: T | null) => void;
 
 /** Callback of the authentication check */
 export type AuthenticationCallback = (authenticated: boolean | null, err?: Error | null) => void;
@@ -177,10 +177,18 @@ export type SequenceValue =
 /** Notification sound */
 export type Sound = {
     displayName: string;
-    folder: string;
+    /** e.g. FOLDER_CELEBRITY */
+    folder: string | null;
     id: string;
+    /** e.g. ECHO */
     providerId: string;
     sampleUrl: string;
+    dynamicTone?: boolean | null;
+    isChildDirected?: boolean;
+    numAssets?: number;
+    pricing?: unknown;
+    sampleVideoUrl?: string | null;
+    skillUrl?: string | null;
 };
 
 /** Status of a notification */
@@ -461,7 +469,19 @@ export interface AlexaCookie {
 
 /** Region specific API endpoints */
 export type Endpoints = {
+    /** e.g. https://eu-api-alexa.amazon.de */
     websiteApiUrl?: string;
+    /** e.g. https://api.eu.amazonalexa.com */
     alexaApiUrl?: string;
+    /** e.g. eu-west-1 */
+    awsRegion?: string;
+    /** e.g. https://eu-bob-dispatch-prod-alexa.amazon.de */
+    bobDispatchUrl?: string;
+    /** e.g. amazon.de */
+    retailDomain?: string;
+    /** e.g. https://www.amazon.de */
+    retailUrl?: string;
+    skillsStoreUrl?: string;
+    websiteUrl?: string;
     [key: string]: any;
 };
