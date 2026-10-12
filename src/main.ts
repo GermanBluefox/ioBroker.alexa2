@@ -17,6 +17,7 @@ import {
 } from './lib/constants';
 import * as shObjects from './lib/smarthomedevices';
 import { getStatusInfoText } from './lib/statusTexts';
+import { ResponseSampler } from './lib/responseSampler';
 import type {
     AdapterObjectDefinition,
     AdditionalDeviceData,
@@ -99,6 +100,8 @@ const ADAPTER_DIR = join(__dirname, '..');
 class Alexa2Adapter extends utils.Adapter {
     /** Assigned in main() before anything else uses it */
     private alexa!: AlexaRemoteInstance;
+    /** Records the Amazon responses (only with log level debug) */
+    private responseSampler: ResponseSampler | undefined;
     private Sentry: SentryLike | null = null;
     private stopped = false;
 
@@ -240,6 +243,7 @@ class Alexa2Adapter extends utils.Adapter {
                 this.clearTimeout(this.shDeviceRefreshTimeoutAfterControl[timer]),
         );
 
+        this.responseSampler?.write();
         if (this.alexa) {
             this.alexa.stop();
         }
@@ -7393,6 +7397,15 @@ class Alexa2Adapter extends utils.Adapter {
 
         // alexa-remote2 declares some members the adapter uses not in its typings (see AlexaRemoteInstance)
         this.alexa = new AlexaRemote() as AlexaRemoteInstance;
+
+        // With log level debug the Amazon responses are recorded to complete the types of the responses
+        if (this.log.level === 'debug' || this.log.level === 'silly') {
+            this.responseSampler = new ResponseSampler(
+                this,
+                join(utils.getAbsoluteInstanceDataDir(this), 'amazon-responses.json'),
+            );
+            this.responseSampler.attach(this.alexa);
+        }
 
         // Count the Smart Home device calls (see checkerInterval below)
         const origSHDQueryFunc = this.alexa.querySmarthomeDevices.bind(this.alexa);

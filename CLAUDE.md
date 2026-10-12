@@ -44,6 +44,7 @@ The integration test aborts if a js-controller is already running on the machine
 | `src/lib/types.ts` | `AlexaDevice`, `AlexaRemoteInstance` and the shapes of the Amazon responses the code relies on |
 | `src/lib/adapter-config.d.ts` | augments `ioBroker.AdapterConfig` — keep in sync with `native` in io-package.json and admin/jsonConfig.json |
 | `src/types/nearest-color.d.ts` | typings for `nearest-color` |
+| `src/lib/responseSampler.ts` | (branch `alexa-remote-ts` only) with log level `debug` records the structure and the last value of every Amazon response, push command and `ws-*` event to `iobroker-data/alexa2.<n>/amazon-responses.json` (secrets redacted) — basis for typing the responses |
 | `src/lib/alexa-remote/` | (branch `alexa-remote-ts` only) unchanged copy of the TypeScript sources of `alexa-remote2` (`src/` of the `typescript-migration` branch of the library), compiled with the adapter instead of the npm package. Do not edit here — change the library and copy the files again |
 | `admin/jsonConfig.json` | the configuration dialog, translations in flat `admin/i18n/<lang>.json` |
 | `admin/icons/*.png` | device icons referenced from `KNOWN_DEVICE_TYPES` |
