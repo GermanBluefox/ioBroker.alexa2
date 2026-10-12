@@ -32,9 +32,11 @@
   },
   "dependencies": {
     "@iobroker/adapter-core": "^3.4.3",
-    "alexa-remote2": "^8.1.1",
+    "alexa-cookie2": "^5.0.6",
+    "extend": "^3.0.2",
     "nearest-color": "^0.4.4",
-    "rrule": "^2.8.1"
+    "rrule": "^2.8.1",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@alcalzone/release-script": "^5.2.1",
@@ -46,7 +48,9 @@
     "@iobroker/testing": "^6.2.2",
     "@iobroker/types": "^7.2.3",
     "@tsconfig/node22": "^22.0.6",
+    "@types/extend": "^3.0.4",
     "@types/node": "^22.20.4",
+    "@types/ws": "^8.18.2",
     "typescript": "~6.0.3"
   },
   "main": "build/main.js",

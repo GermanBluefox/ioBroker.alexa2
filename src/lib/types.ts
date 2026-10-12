@@ -1,5 +1,11 @@
-import type AlexaRemote from 'alexa-remote2';
-import type { MultiSequenceCommand, Serial, SequenceType } from 'alexa-remote2';
+import type AlexaRemote from './alexa-remote/alexa-remote';
+import type {
+    MultiSequenceCommand,
+    Serial,
+    SerialOrName,
+    SerialOrNameOrArray,
+    SequenceType,
+} from './alexa-remote/types';
 
 /** Private key data of the registered "app device", stored in native.macDms */
 export interface MacDms {
@@ -132,12 +138,15 @@ export interface SentryLike {
     captureMessage(message: string, level?: string): void;
 }
 
-/** alexa-remote2 instance incl. members it has, but does not declare in its typings */
-export type AlexaRemoteInstance = AlexaRemote & {
-    ownerCustomerId: string;
-    commsId?: string;
-    _options: Record<string, any>;
-};
+/**
+ * alexa-remote instance with the method signatures the adapter uses (see AlexaRemoteCompat) and members it reads.
+ */
+export type AlexaRemoteInstance = AlexaRemote &
+    AlexaRemoteCompat & {
+        ownerCustomerId: string;
+        commsId?: string;
+        _options: Record<string, any>;
+    };
 
 // ---- types of part A ----
 /** Payload of the "sendSequenceCommand" message (sendTo) */
@@ -419,38 +428,35 @@ export interface AlexaDevice {
  * option of getCustomerHistoryRecords() nor routine objects for executeAutomationRoutine().
  * Callbacks are intentionally NOT added at the call sites, because e.g. sendCommand('volume') calls the callback
  * without checking it.
- * Needs a `declare module 'alexa-remote2'` block with `export default interface AlexaRemote` (see notes of part C).
+ * Merged into AlexaRemoteInstance; the calls try the library signatures first, then these.
  */
-declare module 'alexa-remote2' {
-    // `export default` is required: a plain `interface AlexaRemote` does NOT merge with the default exported class
-    export default interface AlexaRemote {
-        getCustomerHistoryRecords(
-            options: { maxRecordSize?: number; filter?: boolean; startTime?: number; endTime?: number },
-            callback: AlexaCallback,
-        ): void;
-        sendCommand(serialOrName: SerialOrName, command: string, value: unknown, callback?: AlexaCallback): void;
-        sendSequenceCommand(
-            serialOrName: SerialOrNameOrArray,
-            command: string,
-            value: unknown,
-            overrideCustomerId?: string | AlexaCallback,
-            callback?: AlexaCallback,
-        ): void;
-        sendMultiSequenceCommand(
-            serialOrName: SerialOrNameOrArray,
-            commands: SequenceCommandEntry[],
-            sequenceType?: 'SerialNode' | 'ParallelNode' | null,
-            overrideCustomerId?: string,
-            callback?: AlexaCallback,
-        ): void;
-        executeAutomationRoutine(serialOrName: SerialOrName, routine: AmazonJson, callback?: AlexaCallback): void;
-        playMusicProvider(
-            serialOrName: SerialOrName | null,
-            providerId: string,
-            searchPhrase: string,
-            callback?: AlexaCallback,
-        ): void;
-    }
+export interface AlexaRemoteCompat {
+    getCustomerHistoryRecords(
+        options: { maxRecordSize?: number; filter?: boolean; startTime?: number; endTime?: number },
+        callback: AlexaCallback,
+    ): void;
+    sendCommand(serialOrName: SerialOrName, command: string, value: unknown, callback?: AlexaCallback): void;
+    sendSequenceCommand(
+        serialOrName: SerialOrNameOrArray,
+        command: string,
+        value: unknown,
+        overrideCustomerId?: string | AlexaCallback,
+        callback?: AlexaCallback,
+    ): void;
+    sendMultiSequenceCommand(
+        serialOrName: SerialOrNameOrArray,
+        commands: SequenceCommandEntry[],
+        sequenceType?: 'SerialNode' | 'ParallelNode' | null,
+        overrideCustomerId?: string,
+        callback?: AlexaCallback,
+    ): void;
+    executeAutomationRoutine(serialOrName: SerialOrName, routine: AmazonJson, callback?: AlexaCallback): void;
+    playMusicProvider(
+        serialOrName: SerialOrName | null,
+        providerId: string,
+        searchPhrase: string,
+        callback?: AlexaCallback,
+    ): void;
 }
 
 // ---- types of part D ----
@@ -849,18 +855,15 @@ export interface WsNotificationChangePayload extends WsDevicePayload {
  * alexa-remote2 overloads that are used by part E (lists, routines, contacts), but are missing in the typings:
  * the library detects shifted arguments (a function given as options/limit) and has optional callbacks.
  * Callbacks are intentionally NOT added at the call sites, nothing changes at runtime.
- * As in part C: `export default` is required, a plain `interface AlexaRemote` does NOT merge with the default
- * exported class.
+ * Merged into AlexaRemoteInstance (see part C).
  */
-declare module 'alexa-remote2' {
-    export default interface AlexaRemote {
-        getListItems(listId: string, callback: AlexaCallback): void;
-        addListItem(listId: string, options: Record<string, unknown>): void;
-        updateListItem(listId: string, listItemId: string, options: Record<string, unknown>): void;
-        deleteListItem(listId: string, listItemId: string, options: Record<string, unknown>): void;
-        getAutomationRoutines(callback: AlexaCallback): void;
-        getConversations(callback: AlexaCallback): void;
-        /** The typings miss the 2nd parameter lastMessageId */
-        deleteConversation(conversationId: string, lastMessageId: number | undefined, callback: AlexaCallback): void;
-    }
+export interface AlexaRemoteCompat {
+    getListItems(listId: string, callback: AlexaCallback): void;
+    addListItem(listId: string, options: Record<string, unknown>): void;
+    updateListItem(listId: string, listItemId: string, options: Record<string, unknown>): void;
+    deleteListItem(listId: string, listItemId: string, options: Record<string, unknown>): void;
+    getAutomationRoutines(callback: AlexaCallback): void;
+    getConversations(callback: AlexaCallback): void;
+    /** The typings miss the 2nd parameter lastMessageId */
+    deleteConversation(conversationId: string, lastMessageId: number | undefined, callback: AlexaCallback): void;
 }

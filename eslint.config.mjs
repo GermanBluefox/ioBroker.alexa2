@@ -36,4 +36,11 @@ export default [
             '@typescript-eslint/no-require-imports': 'off',
         },
     },
+    {
+        // copy of the alexa-remote library sources: keep them identical to the library
+        files: ['src/lib/alexa-remote/**/*.ts'],
+        linterOptions: {
+            reportUnusedDisableDirectives: 'off',
+        },
+    },
 ];

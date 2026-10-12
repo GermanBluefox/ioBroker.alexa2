@@ -1,6 +1,5 @@
 import * as utils from '@iobroker/adapter-core';
-import AlexaRemote from 'alexa-remote2';
-import type { InitOptions } from 'alexa-remote2';
+import AlexaRemote from './lib/alexa-remote/alexa-remote';
 import { existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { join } from 'node:path';
@@ -1363,7 +1362,7 @@ class Alexa2Adapter extends utils.Adapter {
      * The typings of alexa-remote2 declare the callbacks/entityType as mandatory and parameters as string[].
      */
     private get shAlexa(): ShAlexaRemoteApi {
-        return this.alexa as unknown as ShAlexaRemoteApi;
+        return this.alexa;
     }
 
     /**
@@ -7800,8 +7799,8 @@ class Alexa2Adapter extends utils.Adapter {
         });
 
         this.alexa.on('cookie', (cookie: string | undefined, _csrf: string | undefined, macDms: MacDms | undefined) => {
-            void this.setState('info.cookie', this.alexa.cookie!, true);
-            void this.setState('info.csrf', this.alexa.csrf!, true);
+            void this.setState('info.cookie', this.alexa.cookie, true);
+            void this.setState('info.csrf', this.alexa.csrf, true);
 
             if (cookie !== this.config.cookie) {
                 this.log.info('Update cookie in adapter configuration ... restarting ...');
@@ -7819,7 +7818,7 @@ class Alexa2Adapter extends utils.Adapter {
             }
         });
 
-        this.alexa.init(options as unknown as InitOptions, err => {
+        this.alexa.init(options, err => {
             if (err) {
                 this.log.debug(`Error from Alexa init: ${err.message}`);
                 let restartAdapter = true;
